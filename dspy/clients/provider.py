@@ -3,13 +3,15 @@ from concurrent.futures import Future
 from threading import Thread
 from typing import TYPE_CHECKING, Any
 
-from dspy.clients.utils_finetune import TrainDataFormat, MultiGPUConfig
+from dspy.clients.utils_finetune import MultiGPUConfig, TrainDataFormat
 
 if TYPE_CHECKING:
     from dspy.clients.lm import LM
 
 
 class TrainingJob(Future):
+    """A class representing a training job."""
+
     def __init__(
         self,
         thread: Thread | None = None,
@@ -36,14 +38,20 @@ class TrainingJob(Future):
 
 
 class ReinforceJob:
-    def __init__(self, lm: "LM", train_kwargs: dict[str, Any] | None = None, gpu_config: MultiGPUConfig = MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1)):
+    """A class representing a reinforcement learning job."""
+
+    def __init__(
+        self,
+        lm: "LM",
+        train_kwargs: dict[str, Any] | None = None,
+        gpu_config: MultiGPUConfig = MultiGPUConfig(num_inference_gpus=1, num_training_gpus=1),
+    ):
         self.lm = lm
         self.train_kwargs = train_kwargs or {}
         self.gpu_config = gpu_config
         self.checkpoints = {}
         self.last_checkpoint = None
         self.gpu_config = gpu_config
-
 
     @abstractmethod
     def initialize(self):
@@ -73,6 +81,8 @@ class ReinforceJob:
 
 
 class Provider:
+    """A class representing a provider for training and reinforcement jobs."""
+
     def __init__(self):
         self.finetunable = False
         self.reinforceable = False
