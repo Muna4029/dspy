@@ -190,4 +190,4 @@ async def test_dspy_configure_allowance_async():
 
     await asyncio.gather(foo1(), foo2(), foo3())
 
-    foo4()
+    await foo4()

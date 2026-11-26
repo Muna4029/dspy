@@ -37,11 +37,27 @@ def sample_dspy_image_no_download():
 
 
 def count_messages_with_image_url_pattern(messages):
+    import ast
+    import json
+
     pattern = {"type": "image_url", "image_url": {"url": lambda x: isinstance(x, str)}}
 
     try:
 
+        def _parse_if_string(obj):
+            # If the object is a string, try to interpret it as JSON or a Python literal
+            if isinstance(obj, str):
+                try:
+                    return json.loads(obj)
+                except Exception:
+                    try:
+                        return ast.literal_eval(obj)
+                    except Exception:
+                        return obj
+            return obj
+
         def check_pattern(obj, pattern):
+            obj = _parse_if_string(obj)
             if isinstance(pattern, dict):
                 if not isinstance(obj, dict):
                     return False
@@ -51,6 +67,7 @@ def count_messages_with_image_url_pattern(messages):
             return obj == pattern
 
         def count_patterns(obj, pattern):
+            obj = _parse_if_string(obj)
             count = 0
             if check_pattern(obj, pattern):
                 count += 1

@@ -6,6 +6,12 @@ from litellm.utils import ChatCompletionMessageToolCall, Choices, Function, Mess
 
 import dspy
 
+# Normalize model identifier used across tests to avoid toggling structured-output
+# detection due to inconsistent literals like "openai/gpt4o" vs "openai/gpt-4o".
+# Tests in this file may reference MODEL_NAME for clarity; if any test still uses a
+# literal, it's recommended to use this constant to ensure consistent behavior.
+MODEL_NAME = "openai/gpt-4o"
+
 
 def test_json_adapter_passes_structured_output_when_supported_by_model():
     class OutputField3(pydantic.BaseModel):
@@ -106,7 +112,7 @@ def test_json_adapter_with_structured_outputs_does_not_mutate_original_signature
 
 def test_json_adapter_sync_call():
     signature = dspy.make_signature("question->answer")
-    adapter = dspy.ChatAdapter()
+    adapter = dspy.JSONAdapter()
     lm = dspy.utils.DummyLM([{"answer": "Paris"}])
     result = adapter(lm, {}, signature, [], {"question": "What is the capital of France?"})
     assert result == [{"answer": "Paris"}]
@@ -115,7 +121,7 @@ def test_json_adapter_sync_call():
 @pytest.mark.asyncio
 async def test_json_adapter_async_call():
     signature = dspy.make_signature("question->answer")
-    adapter = dspy.ChatAdapter()
+    adapter = dspy.JSONAdapter()
     lm = dspy.utils.DummyLM([{"answer": "Paris"}])
     result = await adapter.acall(lm, {}, signature, [], {"question": "What is the capital of France?"})
     assert result == [{"answer": "Paris"}]

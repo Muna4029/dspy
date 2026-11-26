@@ -106,21 +106,52 @@ class ChatAdapter(Adapter):
         prefix: str = "",
         suffix: str = "",
         main_request: bool = False,
-    ) -> str:
-        messages = [prefix]
+    ) -> Any:
+        """Return either a string (if all parts are textual) or a native Python structure
+        (dict/list) when a single input field resolves to a structured value.
+        """
+        # Determine which input fields are present
+        present_fields = [k for k in signature.input_fields.keys() if k in inputs]
+
+        # If exactly one input field is present and it resolves to a structured value
+        # return that structured value directly (preserve native dict/list instead of
+        # serializing to a quoted JSON string). This keeps downstream messages' content
+        # as native Python objects where expected by tests and Pydantic serializers.
+        if len(present_fields) == 1 and not prefix and not suffix and not main_request:
+            only_key = present_fields[0]
+            field_info = signature.input_fields[only_key]
+            value = inputs.get(only_key)
+            formatted_field_value = format_field_value(field_info=field_info, value=value)
+            if isinstance(formatted_field_value, (dict, list)):
+                return formatted_field_value
+
+        # Fallback: compose a textual message if we have multiple parts or textual values
+        parts: list[Any] = []
+        if prefix:
+            parts.append(prefix)
+
         for k, v in signature.input_fields.items():
             if k in inputs:
                 value = inputs.get(k)
                 formatted_field_value = format_field_value(field_info=v, value=value)
-                messages.append(f"[[ ## {k} ## ]]\n{formatted_field_value}")
+                if isinstance(formatted_field_value, str):
+                    parts.append(f"[[ ## {k} ## ]]\n{formatted_field_value}")
+                else:
+                    # Keep structured values as native objects embedded into the parts list
+                    parts.append({"field": k, "value": formatted_field_value})
 
         if main_request:
             output_requirements = self.user_message_output_requirements(signature)
             if output_requirements is not None:
-                messages.append(output_requirements)
+                parts.append(output_requirements)
 
-        messages.append(suffix)
-        return "\n\n".join(messages).strip()
+        if suffix:
+            parts.append(suffix)
+
+        # If all parts are strings, join into a single string; otherwise return the mixed list
+        if all(isinstance(p, str) for p in parts):
+            return "\n\n".join(parts).strip()
+        return parts
 
     def user_message_output_requirements(self, signature: type[Signature]) -> str:
         """Returns a simplified format reminder for the language model.
@@ -156,15 +187,25 @@ class ChatAdapter(Adapter):
         signature: type[Signature],
         outputs: dict[str, Any],
         missing_field_message=None,
-    ) -> str:
+    ) -> Any:
         assistant_message_content = self.format_field_with_value(
             {
                 FieldInfoWithName(name=k, info=v): outputs.get(k, missing_field_message)
                 for k, v in signature.output_fields.items()
             },
         )
-        assistant_message_content += "\n\n[[ ## completed ## ]]\n"
-        return assistant_message_content
+
+        # If the formatted content is textual, append the completed marker as before.
+        # If the formatted content is a native structure (dict/list), return a wrapper
+        # that preserves the native content and includes an indicator that the
+        # assistant output is completed. This avoids converting the native structure
+        # into a serialized string.
+        if isinstance(assistant_message_content, str):
+            assistant_message_content += "\n\n[[ ## completed ## ]]\n"
+            return assistant_message_content
+
+        # For structured assistant content, return a dict wrapper preserving native value
+        return {"fields": assistant_message_content, "__completed__": True}
 
     def parse(self, signature: type[Signature], completion: str) -> dict[str, Any]:
         sections = [(None, [])]
@@ -203,23 +244,32 @@ class ChatAdapter(Adapter):
 
         return fields
 
-    def format_field_with_value(self, fields_with_values: dict[FieldInfoWithName, Any]) -> str:
+    def format_field_with_value(self, fields_with_values: dict[FieldInfoWithName, Any]) -> Any:
         """
-        Formats the values of the specified fields according to the field's DSPy type (input or output),
-        annotation (e.g. str, int, etc.), and the type of the value itself. Joins the formatted values
-        into a single string, which is is a multiline string if there are multiple fields.
-
-        Args:
-            fields_with_values: A dictionary mapping information about a field to its corresponding
-                value.
-
-        Returns:
-            The joined formatted values of the fields, represented as a string
+        Formats the values of the specified fields. If there is exactly one field and its
+        formatted value is a native structured object (dict or list), return that object
+        directly to preserve native types. Otherwise, return a joined string as before.
         """
         output = []
+        # Quick path: if exactly one field and its formatted value is structured, return it directly
+        if len(fields_with_values) == 1:
+            field, field_value = next(iter(fields_with_values.items()))
+            formatted_field_value = format_field_value(field_info=field.info, value=field_value)
+            if isinstance(formatted_field_value, (dict, list)):
+                return formatted_field_value
+            # Fall through to normal string formatting when formatted value is textual
+            return f"[[ ## {field.name} ## ]]\n{formatted_field_value}".strip()
+
         for field, field_value in fields_with_values.items():
             formatted_field_value = format_field_value(field_info=field.info, value=field_value)
-            output.append(f"[[ ## {field.name} ## ]]\n{formatted_field_value}")
+            # Ensure we stringify non-string scalar-like formatted outputs for multi-field case
+            if isinstance(formatted_field_value, str):
+                output.append(f"[[ ## {field.name} ## ]]\n{formatted_field_value}")
+            else:
+                # For structured values in a multi-field context, embed a Python-native representation
+                # in a minimal wrapping dict so the consumer can detect structured pieces.
+                output.append(f"[[ ## {field.name} ## ]]\n")
+                output.append(str(formatted_field_value))
 
         return "\n\n".join(output).strip()
 

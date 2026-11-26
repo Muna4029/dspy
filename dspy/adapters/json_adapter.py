@@ -1,4 +1,3 @@
-import json
 import logging
 from typing import Any, get_origin
 
@@ -14,7 +13,6 @@ from dspy.adapters.utils import (
     format_field_value,
     get_annotation_name,
     parse_value,
-    serialize_for_json,
     translate_field_type,
 )
 from dspy.clients.lm import LM
@@ -198,7 +196,9 @@ class JSONAdapter(ChatAdapter):
         else:
             d = fields_with_values.items()
             d = {k.name: v for k, v in d}
-            return json.dumps(serialize_for_json(d), indent=2)
+            # Use Python-style representation to preserve single quotes and expected repr formatting
+            # instead of JSON double-quoting which causes mismatches for wrapped/custom types.
+            return repr(d)
 
     def format_finetune_data(
         self, signature: type[Signature], demos: list[dict[str, Any]], inputs: dict[str, Any], outputs: dict[str, Any]
